@@ -59,12 +59,13 @@ Action exacte : 1) Attendre le redeploy Vercel (merge main). 2) Demander à l'ut
                 4) Activer le provider Google (Client ID/Secret) + redirect /auth/callback dans Supabase.
 ```
 
-> BUG EN COURS (Render deploy) : `DATABASE_URL` pointe vers la connexion DIRECTE
-> `db.ejozdljwafoydynduboe.supabase.co:5432` (IPv6) → Render free (IPv4) ne peut pas
-> la joindre → `P1001 Can't reach database server` pendant `prisma migrate deploy`.
-> FIX : mettre `DATABASE_URL` = chaîne **Session pooler** (IPv4), host
-> `aws-0-eu-north-1.pooler.supabase.com:5432`, user `postgres.ejozdljwafoydynduboe`.
-> Le build réussit ; seul l'accès DB échoue. Pas de changement de code requis.
+> BUG Render (P1001) RÉSOLU CÔTÉ CODE : `DATABASE_URL` directe (IPv6) injoignable depuis
+> Render (IPv4). FIX auto : `scripts/db-deploy.cjs` (lancé par `prisma:deploy`) détecte une
+> URL Supabase directe, teste les shards Session pooler (aws-0/aws-1 eu-north-1) avec le vrai
+> mot de passe, choisit celui qui répond, lance `migrate deploy`, et écrit l'URL résolue dans
+> `os.tmpdir()/veloria-resolved-db-url` ; `main.ts` la relit au runtime (helper
+> `src/common/supabase-db-url.ts`). Overrides : SUPABASE_POOLER_HOST / SUPABASE_POOLER_REGION.
+> => L'utilisateur n'a RIEN à changer sur Render ; il suffit que `main` redéploie.
 
 > Si je relis ce fichier après une coupure, j'exécute cette section SANS redemander.
 
