@@ -59,6 +59,14 @@ Action exacte : 1) Attendre le redeploy Vercel (merge main). 2) Demander à l'ut
                 4) Activer le provider Google (Client ID/Secret) + redirect /auth/callback dans Supabase.
 ```
 
+> BUG Render (P1001) RÉSOLU CÔTÉ CODE : `DATABASE_URL` directe (IPv6) injoignable depuis
+> Render (IPv4). FIX auto : `scripts/db-deploy.cjs` (lancé par `prisma:deploy`) détecte une
+> URL Supabase directe, teste les shards Session pooler (aws-0/aws-1 eu-north-1) avec le vrai
+> mot de passe, choisit celui qui répond, lance `migrate deploy`, et écrit l'URL résolue dans
+> `os.tmpdir()/veloria-resolved-db-url` ; `main.ts` la relit au runtime (helper
+> `src/common/supabase-db-url.ts`). Overrides : SUPABASE_POOLER_HOST / SUPABASE_POOLER_REGION.
+> => L'utilisateur n'a RIEN à changer sur Render ; il suffit que `main` redéploie.
+
 > Si je relis ce fichier après une coupure, j'exécute cette section SANS redemander.
 
 ---
