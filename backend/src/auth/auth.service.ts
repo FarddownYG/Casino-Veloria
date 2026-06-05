@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,12 +14,27 @@ import { TokenService } from '../common/token/token.service';
 import { BalanceService } from '../economy/balance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, SupabaseLoginDto } from './dto/auth.dto';
 
 const BCRYPT_ROUNDS = 10;
 
+interface EconomyTuning {
+  signupBonus: number;
+  referralRewardReferrer: number;
+  referralRewardReferred: number;
+}
+
+interface SupabaseUser {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
@@ -28,8 +44,11 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  private econ(): EconomyTuning {
+    return this.config.get('economy') as EconomyTuning;
+  }
+
   private async generateReferralCode(): Promise<string> {
-    // 8-char uppercase base32-ish code, retry until unique.
     for (let i = 0; i < 6; i++) {
       const code = randomBytes(8)
         .toString('base64')
@@ -44,6 +63,27 @@ export class AuthService {
       if (!exists) return code;
     }
     throw new BadRequestException('Could not allocate referral code, retry');
+  }
+
+  /** Derives a unique, sanitised username from a display name or email. */
+  private async generateUniqueUsername(base: string): Promise<string> {
+    let slug = (base || 'player')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 20);
+    if (slug.length < 3) slug = `player${Math.floor(1000 + Math.random() * 9000)}`;
+
+    let candidate = slug;
+    for (let i = 1; i <= 50; i++) {
+      const exists = await this.prisma.user.findUnique({
+        where: { username: candidate },
+        select: { id: true },
+      });
+      if (!exists) return candidate;
+      const suffix = String(i);
+      candidate = slug.slice(0, 20 - suffix.length) + suffix;
+    }
+    return `player${Date.now().toString().slice(-7)}`;
   }
 
   private hashToken(token: string): string {
@@ -67,6 +107,68 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  private async resolveReferrer(code?: string) {
+    if (!code) return null;
+    const referrer = await this.prisma.user.findUnique({
+      where: { referralCode: code.toUpperCase() },
+      select: { id: true, username: true },
+    });
+    if (!referrer) throw new BadRequestException('Invalid referral code');
+    return referrer;
+  }
+
+  /** Credits the welcome bonus through the ledger. */
+  private async grantSignupBonus(userId: string): Promise<void> {
+    const econ = this.econ();
+    await this.balance.adjust({
+      userId,
+      amount: econ.signupBonus,
+      type: TransactionType.SIGNUP_BONUS,
+      reason: 'Welcome bonus',
+      description: `Bonus de bienvenue (+${econ.signupBonus} VC)`,
+    });
+  }
+
+  /** Records an irreversible referral and credits both parties. */
+  private async applyReferral(
+    referrer: { id: string; username: string },
+    newUser: { id: string; username: string },
+    code: string,
+  ): Promise<void> {
+    const econ = this.econ();
+    await this.prisma.referral.create({
+      data: {
+        referrerId: referrer.id,
+        referredId: newUser.id,
+        codeUsed: code.toUpperCase(),
+        rewardReferrer: econ.referralRewardReferrer,
+        rewardReferred: econ.referralRewardReferred,
+        locked: true,
+      },
+    });
+    await this.balance.adjust({
+      userId: newUser.id,
+      amount: econ.referralRewardReferred,
+      type: TransactionType.REFERRAL_BONUS_REFERRED,
+      reason: 'Referral bonus',
+      description: `Parrainage par ${referrer.username}`,
+    });
+    await this.balance.adjust({
+      userId: referrer.id,
+      amount: econ.referralRewardReferrer,
+      type: TransactionType.REFERRAL_BONUS_REFERRER,
+      reason: 'Referral bonus',
+      description: `Filleul ${newUser.username} inscrit`,
+    });
+    await this.notifications.create({
+      userId: referrer.id,
+      type: NotificationType.REFERRAL_REWARD,
+      title: `Nouveau filleul : +${econ.referralRewardReferrer} VC 🎉`,
+      body: `${newUser.username} s'est inscrit avec votre code.`,
+      data: { referredUsername: newUser.username },
+    });
+  }
+
   async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findFirst({
       where: { OR: [{ email: dto.email }, { username: dto.username }] },
@@ -80,26 +182,10 @@ export class AuthService {
       );
     }
 
-    // Resolve referral code (irreversible once registered).
-    let referrer: { id: string; username: string } | null = null;
-    if (dto.referralCode) {
-      referrer = await this.prisma.user.findUnique({
-        where: { referralCode: dto.referralCode.toUpperCase() },
-        select: { id: true, username: true },
-      });
-      if (!referrer) throw new BadRequestException('Invalid referral code');
-    }
-
+    const referrer = await this.resolveReferrer(dto.referralCode);
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const referralCode = await this.generateReferralCode();
-    const econ = this.config.get('economy') as {
-      signupBonus: number;
-      referralRewardReferrer: number;
-      referralRewardReferred: number;
-    };
 
-    // Create the user with balance 0; the signup bonus is applied via the
-    // ledger so every coin is traceable.
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -109,54 +195,12 @@ export class AuthService {
         referralCode,
         referredById: referrer?.id,
         referralLocked: !!referrer,
-        ageVerifiedAt: null,
       },
       select: { id: true, username: true, role: true },
     });
 
-    // Signup bonus.
-    await this.balance.adjust({
-      userId: user.id,
-      amount: econ.signupBonus,
-      type: TransactionType.SIGNUP_BONUS,
-      reason: 'Welcome bonus',
-      description: `Bonus de bienvenue (+${econ.signupBonus} VC)`,
-    });
-
-    // Referral rewards (irreversible, locked).
-    if (referrer) {
-      await this.prisma.referral.create({
-        data: {
-          referrerId: referrer.id,
-          referredId: user.id,
-          codeUsed: dto.referralCode!.toUpperCase(),
-          rewardReferrer: econ.referralRewardReferrer,
-          rewardReferred: econ.referralRewardReferred,
-          locked: true,
-        },
-      });
-      await this.balance.adjust({
-        userId: user.id,
-        amount: econ.referralRewardReferred,
-        type: TransactionType.REFERRAL_BONUS_REFERRED,
-        reason: 'Referral bonus',
-        description: `Parrainage par ${referrer.username}`,
-      });
-      await this.balance.adjust({
-        userId: referrer.id,
-        amount: econ.referralRewardReferrer,
-        type: TransactionType.REFERRAL_BONUS_REFERRER,
-        reason: 'Referral bonus',
-        description: `Filleul ${user.username} inscrit`,
-      });
-      await this.notifications.create({
-        userId: referrer.id,
-        type: NotificationType.REFERRAL_REWARD,
-        title: `Nouveau filleul : +${econ.referralRewardReferrer} VC 🎉`,
-        body: `${user.username} s'est inscrit avec votre code.`,
-        data: { referredUsername: user.username },
-      });
-    }
+    await this.grantSignupBonus(user.id);
+    if (referrer) await this.applyReferral(referrer, user, dto.referralCode!);
 
     const tokens = await this.issueTokens(user);
     const profile = await this.users.getPrivateProfile(user.id);
@@ -172,11 +216,104 @@ export class AuthService {
       select: { id: true, username: true, role: true, passwordHash: true },
     });
     if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('This account uses Google sign-in');
+    }
 
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
     await this.users.processLogin(user.id);
+
+    const tokens = await this.issueTokens(user);
+    const profile = await this.users.getPrivateProfile(user.id);
+    return { user: profile, ...tokens };
+  }
+
+  /** Verifies a Supabase access token by calling the Supabase Auth API. */
+  private async verifySupabaseToken(accessToken: string): Promise<SupabaseUser> {
+    const { url, anonKey } = this.config.get('supabase') as {
+      url: string;
+      anonKey: string;
+    };
+    let res: Response;
+    try {
+      res = await fetch(`${url}/auth/v1/user`, {
+        headers: { Authorization: `Bearer ${accessToken}`, apikey: anonKey },
+      });
+    } catch (e) {
+      this.logger.error(`Supabase verify failed: ${(e as Error).message}`);
+      throw new UnauthorizedException('Could not reach the identity provider');
+    }
+    if (!res.ok) throw new UnauthorizedException('Invalid Google session');
+
+    const data = (await res.json()) as {
+      id: string;
+      email?: string;
+      user_metadata?: Record<string, string>;
+    };
+    if (!data.email) throw new UnauthorizedException('Google account has no email');
+    const meta = data.user_metadata ?? {};
+    return {
+      id: data.id,
+      email: data.email.toLowerCase(),
+      name: meta.full_name || meta.name || null,
+      avatarUrl: meta.avatar_url || meta.picture || null,
+    };
+  }
+
+  /**
+   * Logs in (or registers) via a Supabase OAuth session (Google). New users
+   * receive the signup bonus and may apply a referral code. Existing accounts
+   * with the same email are linked to the Supabase identity.
+   */
+  async loginWithSupabase(dto: SupabaseLoginDto) {
+    const supa = await this.verifySupabaseToken(dto.accessToken);
+
+    // Existing user by Supabase id or email.
+    let existing = await this.prisma.user.findFirst({
+      where: { OR: [{ supabaseUserId: supa.id }, { email: supa.email }], deletedAt: null },
+      select: { id: true, username: true, role: true, supabaseUserId: true },
+    });
+
+    if (existing) {
+      if (!existing.supabaseUserId) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { supabaseUserId: supa.id, avatarUrl: supa.avatarUrl ?? undefined },
+        });
+      }
+      await this.users.processLogin(existing.id);
+      const tokens = await this.issueTokens(existing);
+      const profile = await this.users.getPrivateProfile(existing.id);
+      return { user: profile, ...tokens };
+    }
+
+    // New OAuth user.
+    const referrer = await this.resolveReferrer(dto.referralCode);
+    const username = await this.generateUniqueUsername(
+      supa.name ?? supa.email.split('@')[0],
+    );
+    const referralCode = await this.generateReferralCode();
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: supa.email,
+        username,
+        passwordHash: null,
+        supabaseUserId: supa.id,
+        avatarUrl: supa.avatarUrl,
+        balance: 0,
+        referralCode,
+        referredById: referrer?.id,
+        referralLocked: !!referrer,
+        ageVerifiedAt: new Date(),
+      },
+      select: { id: true, username: true, role: true },
+    });
+
+    await this.grantSignupBonus(user.id);
+    if (referrer) await this.applyReferral(referrer, user, dto.referralCode!);
 
     const tokens = await this.issueTokens(user);
     const profile = await this.users.getPrivateProfile(user.id);
@@ -199,7 +336,6 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expired or revoked');
     }
 
-    // Rotate: revoke the old token, issue a new pair.
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
       data: { revokedAt: new Date() },

@@ -35,3 +35,13 @@ export class RefreshDto {
   @IsString()
   refreshToken!: string;
 }
+
+export class SupabaseLoginDto {
+  @IsString()
+  accessToken!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  referralCode?: string;
+}

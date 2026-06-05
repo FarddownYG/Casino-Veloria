@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 import { useLogin } from '@/hooks/useAuth';
 import { apiErrorMessage } from '@/lib/api';
+import { GoogleButton, OrDivider } from '@/components/GoogleButton';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -47,6 +48,9 @@ export default function Login() {
             {login.isPending ? 'Connexion…' : 'Se connecter'}
           </Button>
         </form>
+
+        <OrDivider />
+        <GoogleButton />
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Pas encore de compte ?{' '}

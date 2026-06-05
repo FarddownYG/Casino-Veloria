@@ -89,6 +89,9 @@ After seeding: **`veloria_vip`** / `password123` (or `luckyluc`, `johndoe`,
 
 ### Auth & accounts
 - ✅ Register/login (email + username + bcrypt password), JWT + refresh rotation.
+- ✅ **Google sign-in via Supabase** — "Continuer avec Google" on /login & /register.
+  The backend verifies the Supabase token and issues VELORIA JWTs, so the
+  server-authoritative economy is unchanged. Setup: `docs/SUPABASE_GOOGLE_AUTH.md`.
 - ✅ **1000 VC** signup bonus (recorded in the immutable ledger).
 - ✅ Public profile (username, balance, rank, history) + private profile.
 

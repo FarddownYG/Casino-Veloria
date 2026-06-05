@@ -13,12 +13,18 @@ All money values are integers (VELORIA COINS, "VC").
 |--------|------------------|---------------------------------------------------|---------|
 | POST   | `/register`      | `{ email, username, password, referralCode? }`    | `{ user, accessToken, refreshToken }` |
 | POST   | `/login`         | `{ emailOrUsername, password }`                   | `{ user, accessToken, refreshToken }` |
+| POST   | `/google`        | `{ accessToken, referralCode? }`                  | `{ user, accessToken, refreshToken }` |
 | POST   | `/refresh`       | `{ refreshToken }`                                | `{ accessToken, refreshToken }` |
 | POST   | `/logout`        | `{ refreshToken }`                                | `{ success }` |
 | GET    | `/me`            | —                                                 | `User` (private view) |
 
 `register` applies the signup bonus (1000 VC) and, if a valid `referralCode`
 is supplied, locks the referral irreversibly and credits both parties.
+
+`/google` takes a **Supabase** access token (from the client-side Google OAuth
+flow), verifies it server-side, then finds-or-creates the VELORIA user (signup
+bonus + optional referral for new accounts) and returns VELORIA JWTs. See
+`SUPABASE_GOOGLE_AUTH.md`.
 
 ## Users — `/users`
 

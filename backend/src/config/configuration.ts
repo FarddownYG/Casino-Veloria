@@ -9,6 +9,7 @@ export interface AppConfig {
     refreshTtl: number;
   };
   redis: { host: string; port: number; password?: string };
+  supabase: { url: string; anonKey: string };
   economy: {
     signupBonus: number;
     referralRewardReferrer: number;
@@ -48,6 +49,12 @@ export default (): AppConfig => ({
     host: process.env.REDIS_HOST ?? 'localhost',
     port: toInt(process.env.REDIS_PORT, 6379),
     password: process.env.REDIS_PASSWORD || undefined,
+  },
+  supabase: {
+    url: process.env.SUPABASE_URL ?? 'https://ejozdljwafoydynduboe.supabase.co',
+    anonKey:
+      process.env.SUPABASE_ANON_KEY ??
+      'sb_publishable_L7a4ogUaL58Rin0TDjHcww_Pa36lr9h',
   },
   economy: {
     signupBonus: toInt(process.env.SIGNUP_BONUS, 1000),
