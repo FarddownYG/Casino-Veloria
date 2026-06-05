@@ -28,8 +28,9 @@ Objectifs ajoutés en cours de route :
 - [x] Étape 4 : Déploiement frontend Vercel (CI verte)
 - [x] Étape 5 : Connexion Google via Supabase (code complet, mergé sur main)
 - [ ] Étape 6 : **Activer le provider Google dans le dashboard Supabase** (Client ID/Secret + redirect URLs) — ACTION UTILISATEUR
-- [ ] Étape 7 : **Héberger le backend NestJS** (URL publique) + DB = Postgres Supabase → corrige le « Network Error » en prod
-- [ ] Étape 8 : Régler `VITE_API_URL` sur Vercel vers le backend hébergé
+- [x] Étape 7 : Backend NestJS hébergé sur **Render** (https://casino-veloria.onrender.com), DB = Postgres Supabase (session pooler)
+- [x] Étape 8 : Frontend branché sur le backend Render (défaut prod dans `frontend/src/lib/env.ts`) + CORS par défaut autorise le domaine Vercel
+- [ ] Étape 9 : **Tester le site en ligne** (login email/password puis Google) + activer le provider Google dans Supabase
 <!-- Cocher [x] au fur et à mesure -->
 
 ---
@@ -37,11 +38,12 @@ Objectifs ajoutés en cours de route :
 ## ✅ DERNIÈRE ACTION COMPLÉTÉE
 
 ```
-Fichier    : (PR #3) auth.service.ts, GoogleButton.tsx, AuthCallback.tsx, supabase.ts
-Action     : Connexion Google via Supabase, mergée sur main (squash 2f71dbe), prod Vercel verte
-Résultat   : Le bouton Google existe ; MAIS après le retour OAuth, /auth/callback appelle le
-             backend (/api/auth/google) sur http://localhost:4000 → injoignable en prod →
-             "Network Error". Cause racine : le backend NestJS n'est hébergé nulle part.
+Fichier    : frontend/src/lib/env.ts (défaut prod → Render) + backend/src/config/configuration.ts (CORS)
+Action     : Backend déployé par l'utilisateur sur Render (https://casino-veloria.onrender.com).
+             Frontend pointé vers ce backend en prod ; CORS par défaut inclut le domaine Vercel.
+Résultat   : Câblage terminé. À TESTER en ligne. Réserves : (1) je ne peux pas curl onrender.com
+             depuis mon env (host non autorisé) → validation via navigateur. (2) Render free =
+             cold start ~50s. (3) Sans Redis, les jobs BullMQ sont désactivés (non bloquant).
 ```
 
 ---
@@ -49,11 +51,12 @@ Résultat   : Le bouton Google existe ; MAIS après le retour OAuth, /auth/callb
 ## ⏭️ PROCHAINE ACTION IMMÉDIATE
 
 ```
-Fichier cible : (infra) hébergement backend + frontend/.env (VITE_API_URL) + Supabase Postgres
-Méthode/bloc  : Décider de l'hébergement du backend, puis pointer VITE_API_URL et DATABASE_URL
-Action exacte : 1) Activer Google dans Supabase Auth (utilisateur). 2) Héberger le backend
-                NestJS sur un host Node persistant (WebSockets requis). 3) DATABASE_URL →
-                Postgres Supabase (db.ejozdljwafoydynduboe). 4) VITE_API_URL (Vercel) → URL backend.
+Fichier cible : test en ligne (https://casino-veloria.vercel.app) après redeploy Vercel
+Méthode/bloc  : Vérifier /api/health (navigateur) → {"status":"ok"} ; tester register/login ;
+                puis activer Google dans Supabase (Providers + redirect URLs) et tester le bouton.
+Action exacte : 1) Attendre le redeploy Vercel (merge main). 2) Demander à l'utilisateur de
+                tester l'inscription/connexion. 3) Si erreur, récupérer les logs Render.
+                4) Activer le provider Google (Client ID/Secret) + redirect /auth/callback dans Supabase.
 ```
 
 > Si je relis ce fichier après une coupure, j'exécute cette section SANS redemander.
@@ -92,7 +95,7 @@ Action exacte : 1) Activer Google dans Supabase Auth (utilisateur). 2) Héberger
 
 ## 🚨 PROBLÈMES / BLOCAGES
 
-1. **BLOCAGE PRINCIPAL — backend non hébergé.** Le site Vercel (frontend) appelle l'API sur `http://localhost:4000` (défaut `VITE_API_URL`) → en production tout appel API échoue (« Network Error »), y compris `/auth/google` après le retour Google. Il faut héberger le backend NestJS (host Node persistant, WebSockets requis) et régler `VITE_API_URL`.
+1. **RÉSOLU — backend hébergé sur Render** (https://casino-veloria.onrender.com). Le frontend prod pointe dessus (`frontend/src/lib/env.ts`, défaut `import.meta.env.PROD`). Reste à tester en ligne. Note : Render free dort après inactivité (cold start ~50s) ; sans Redis les jobs BullMQ sont off (non bloquant). Variables Render requises : DATABASE_URL (Supabase session pooler), JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, SUPABASE_URL, SUPABASE_ANON_KEY, CORS_ORIGINS.
 2. **Google provider à activer dans Supabase** (dashboard) : sinon erreur 400 « provider is not enabled ». Étapes dans `docs/SUPABASE_GOOGLE_AUTH.md`.
 3. **DB de prod** : le Postgres Supabase n'a pas encore le schéma appliqué (à faire quand l'hébergement backend est décidé, via `prisma migrate deploy` ou MCP).
 4. Poker : pot unique (pas de side-pots multi-all-in) — simplification assumée.
