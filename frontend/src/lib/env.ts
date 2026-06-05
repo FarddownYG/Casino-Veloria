@@ -1,7 +1,11 @@
 /** Centralised access to Vite env vars. */
+const DEFAULT_API_URL = import.meta.env.PROD
+  ? 'https://casino-veloria.onrender.com'
+  : 'http://localhost:4000';
+
 export const API_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ??
-  'http://localhost:4000';
+  DEFAULT_API_URL;
 
 export const API_BASE = `${API_URL}/api`;
 

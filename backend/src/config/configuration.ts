@@ -35,7 +35,10 @@ const toFloat = (v: string | undefined, fallback: number): number => {
 export default (): AppConfig => ({
   env: process.env.NODE_ENV ?? 'development',
   port: toInt(process.env.PORT, 4000),
-  corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+  corsOrigins: (
+    process.env.CORS_ORIGINS ??
+    'http://localhost:5173,https://casino-veloria.vercel.app'
+  )
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
