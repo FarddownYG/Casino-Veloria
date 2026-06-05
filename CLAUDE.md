@@ -59,6 +59,13 @@ Action exacte : 1) Attendre le redeploy Vercel (merge main). 2) Demander à l'ut
                 4) Activer le provider Google (Client ID/Secret) + redirect /auth/callback dans Supabase.
 ```
 
+> BUG EN COURS (Render deploy) : `DATABASE_URL` pointe vers la connexion DIRECTE
+> `db.ejozdljwafoydynduboe.supabase.co:5432` (IPv6) → Render free (IPv4) ne peut pas
+> la joindre → `P1001 Can't reach database server` pendant `prisma migrate deploy`.
+> FIX : mettre `DATABASE_URL` = chaîne **Session pooler** (IPv4), host
+> `aws-0-eu-north-1.pooler.supabase.com:5432`, user `postgres.ejozdljwafoydynduboe`.
+> Le build réussit ; seul l'accès DB échoue. Pas de changement de code requis.
+
 > Si je relis ce fichier après une coupure, j'exécute cette section SANS redemander.
 
 ---
