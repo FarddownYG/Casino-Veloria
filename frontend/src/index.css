@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dopamine Dark theme tokens (HSL channels, no wrapper) */
+    --background: 222 24% 6%; /* #0d0f14 */
+    --foreground: 220 18% 92%;
+
+    --surface: 226 24% 11%; /* #151823 */
+    --surface-raised: 228 22% 14%; /* #1b1f2e */
+
+    --card: 226 24% 11%;
+    --card-foreground: 220 18% 92%;
+
+    --popover: 228 22% 13%;
+    --popover-foreground: 220 18% 92%;
+
+    --primary: 41 90% 61%; /* gold #f5b942 */
+    --primary-foreground: 224 30% 8%;
+
+    --secondary: 228 20% 18%;
+    --secondary-foreground: 220 18% 92%;
+
+    --muted: 228 14% 22%;
+    --muted-foreground: 224 12% 59%; /* #8a90a2 */
+
+    --accent: 145 70% 48%; /* neon green */
+    --accent-foreground: 224 30% 8%;
+
+    --destructive: 353 100% 65%; /* #ff4d5e */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 228 18% 20%;
+    --input: 228 18% 18%;
+    --ring: 41 90% 61%;
+
+    --radius: 0.85rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(245, 185, 66, 0.07), transparent),
+      radial-gradient(900px 500px at -10% 10%, rgba(31, 214, 85, 0.05), transparent);
+    background-attachment: fixed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted));
+  }
+}
+
+@layer components {
+  .glass {
+    @apply border border-white/10 bg-glass backdrop-blur-xl;
+  }
+
+  .card-surface {
+    @apply rounded-xl border border-white/5 bg-surface shadow-card;
+  }
+
+  .gold-text {
+    @apply bg-gold-gradient bg-clip-text text-transparent;
+  }
+
+  .chip {
+    @apply inline-flex h-12 w-12 select-none items-center justify-center rounded-full text-sm font-bold shadow-lg ring-2 ring-white/20;
+  }
+
+  .focus-ring {
+    @apply outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-ring;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
