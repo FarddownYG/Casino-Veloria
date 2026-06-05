@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 import { useRegister } from '@/hooks/useAuth';
 import { apiErrorMessage } from '@/lib/api';
+import { GoogleButton, OrDivider } from '@/components/GoogleButton';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -60,6 +61,12 @@ export default function Register() {
             {register.isPending ? 'Création…' : "S'inscrire"}
           </Button>
         </form>
+
+        <OrDivider />
+        <GoogleButton referralCode={referralCode || undefined} />
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+          Avec Google, le code parrain saisi ci-dessus sera appliqué (définitif).
+        </p>
 
         <p className="mt-4 text-[11px] text-muted-foreground">
           En créant un compte vous confirmez avoir 18 ans et acceptez que VELORIA est un jeu
