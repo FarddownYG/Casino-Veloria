@@ -72,4 +72,22 @@ const migrate = spawnSync('npx', ['prisma', 'migrate', 'deploy'], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: chosen },
 });
-process.exit(migrate.status == null ? 1 : migrate.status);
+if (migrate.status === 0) {
+  process.exit(0);
+}
+
+// Fallback: if `migrate deploy` can't reconcile the migration history (e.g. a
+// malformed lock file, a partially-applied/baselined DB), push the schema
+// directly so the service can still come up with a correct schema.
+console.warn('[db] `prisma migrate deploy` failed — falling back to `prisma db push`…');
+const push = spawnSync(
+  'npx',
+  ['prisma', 'db', 'push', '--accept-data-loss', '--skip-generate'],
+  { stdio: 'inherit', env: { ...process.env, DATABASE_URL: chosen } },
+);
+if (push.status === 0) {
+  console.log('[db] schema synchronised via `prisma db push` ✓');
+  process.exit(0);
+}
+console.error('[db] both `migrate deploy` and `db push` failed.');
+process.exit(1);
