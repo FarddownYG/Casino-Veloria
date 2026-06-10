@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType, TransactionType } from '@prisma/client';
+import { NotificationType, Prisma, TransactionType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -118,7 +118,7 @@ export class AuthService {
   }
 
   /** Credits the welcome bonus through the ledger. */
-  private async grantSignupBonus(userId: string): Promise<void> {
+  private async grantSignupBonus(userId: string, tx?: Prisma.TransactionClient): Promise<void> {
     const econ = this.econ();
     await this.balance.adjust({
       userId,
@@ -126,6 +126,7 @@ export class AuthService {
       type: TransactionType.SIGNUP_BONUS,
       reason: 'Welcome bonus',
       description: `Bonus de bienvenue (+${econ.signupBonus} VC)`,
+      tx,
     });
   }
 
@@ -134,9 +135,10 @@ export class AuthService {
     referrer: { id: string; username: string },
     newUser: { id: string; username: string },
     code: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     const econ = this.econ();
-    await this.prisma.referral.create({
+    await (tx ?? this.prisma).referral.create({
       data: {
         referrerId: referrer.id,
         referredId: newUser.id,
@@ -152,6 +154,7 @@ export class AuthService {
       type: TransactionType.REFERRAL_BONUS_REFERRED,
       reason: 'Referral bonus',
       description: `Parrainage par ${referrer.username}`,
+      tx,
     });
     await this.balance.adjust({
       userId: referrer.id,
@@ -159,6 +162,7 @@ export class AuthService {
       type: TransactionType.REFERRAL_BONUS_REFERRER,
       reason: 'Referral bonus',
       description: `Filleul ${newUser.username} inscrit`,
+      tx,
     });
     await this.notifications.create({
       userId: referrer.id,
@@ -186,21 +190,25 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const referralCode = await this.generateReferralCode();
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        username: dto.username,
-        passwordHash,
-        balance: 0,
-        referralCode,
-        referredById: referrer?.id,
-        referralLocked: !!referrer,
-      },
-      select: { id: true, username: true, role: true },
+    // Create the account, credit the signup bonus and apply the referral in one
+    // transaction so a mid-way failure can't leave a half-provisioned account.
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: dto.email,
+          username: dto.username,
+          passwordHash,
+          balance: 0,
+          referralCode,
+          referredById: referrer?.id,
+          referralLocked: !!referrer,
+        },
+        select: { id: true, username: true, role: true },
+      });
+      await this.grantSignupBonus(created.id, tx);
+      if (referrer) await this.applyReferral(referrer, created, dto.referralCode!, tx);
+      return created;
     });
-
-    await this.grantSignupBonus(user.id);
-    if (referrer) await this.applyReferral(referrer, user, dto.referralCode!);
 
     const tokens = await this.issueTokens(user);
     const profile = await this.users.getPrivateProfile(user.id);
@@ -296,24 +304,26 @@ export class AuthService {
     );
     const referralCode = await this.generateReferralCode();
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: supa.email,
-        username,
-        passwordHash: null,
-        supabaseUserId: supa.id,
-        avatarUrl: supa.avatarUrl,
-        balance: 0,
-        referralCode,
-        referredById: referrer?.id,
-        referralLocked: !!referrer,
-        ageVerifiedAt: new Date(),
-      },
-      select: { id: true, username: true, role: true },
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: supa.email,
+          username,
+          passwordHash: null,
+          supabaseUserId: supa.id,
+          avatarUrl: supa.avatarUrl,
+          balance: 0,
+          referralCode,
+          referredById: referrer?.id,
+          referralLocked: !!referrer,
+          ageVerifiedAt: new Date(),
+        },
+        select: { id: true, username: true, role: true },
+      });
+      await this.grantSignupBonus(created.id, tx);
+      if (referrer) await this.applyReferral(referrer, created, dto.referralCode!, tx);
+      return created;
     });
-
-    await this.grantSignupBonus(user.id);
-    if (referrer) await this.applyReferral(referrer, user, dto.referralCode!);
 
     const tokens = await this.issueTokens(user);
     const profile = await this.users.getPrivateProfile(user.id);

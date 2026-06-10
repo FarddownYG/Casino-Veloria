@@ -27,6 +27,7 @@ import { LeaderboardService } from './leaderboard.service';
 export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(LobbyGateway.name);
   private readonly onlineUsers = new Set<string>();
+  private lbDirtyTimer?: NodeJS.Timeout;
 
   @WebSocketServer()
   server!: Namespace;
@@ -135,12 +136,20 @@ export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @OnEvent(AppEvents.LeaderboardDirty)
-  async onLeaderboardDirty(): Promise<void> {
-    const [wealth, gains] = await Promise.all([
-      this.leaderboard.getWealth(20),
-      this.leaderboard.getGains(20),
-    ]);
-    this.server.emit('leaderboard:wealth', { entries: wealth });
-    this.server.emit('leaderboard:gains', { entries: gains });
+  onLeaderboardDirty(): void {
+    // Debounce: settles can fire this rapidly; coalesce into one refresh every
+    // few seconds instead of a DB query + broadcast per round.
+    if (this.lbDirtyTimer) return;
+    this.lbDirtyTimer = setTimeout(() => {
+      this.lbDirtyTimer = undefined;
+      void (async () => {
+        const [wealth, gains] = await Promise.all([
+          this.leaderboard.getWealth(20),
+          this.leaderboard.getGains(20),
+        ]);
+        this.server.emit('leaderboard:wealth', { entries: wealth });
+        this.server.emit('leaderboard:gains', { entries: gains });
+      })();
+    }, 3000);
   }
 }

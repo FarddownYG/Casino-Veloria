@@ -24,6 +24,10 @@ export interface AdjustParams {
   won?: number;
   lost?: number;
   allowNegative?: boolean;
+  // Optional parent transaction: when provided, the ledger writes join it so a
+  // caller (e.g. register) can make the whole operation atomic. Realtime events
+  // still fire after exec() returns.
+  tx?: Prisma.TransactionClient;
 }
 
 export interface AdjustResult {
@@ -54,7 +58,9 @@ export class BalanceService {
    * fans out realtime events. Throws on insufficient funds (unless allowed).
    */
   async adjust(p: AdjustParams): Promise<AdjustResult> {
-    const outcome = await this.prisma.$transaction(async (tx) => {
+    const exec = async (
+      tx: Prisma.TransactionClient,
+    ): Promise<{ newBalance: number; transactionId: string; prevRank: Rank; newRank: Rank }> => {
       // Atomic, conditional balance mutation. The increment AND the
       // sufficient-funds guard happen in a single UPDATE, so two concurrent
       // adjust() calls can never read the same balance and clobber each other
@@ -111,7 +117,8 @@ export class BalanceService {
       });
 
       return { newBalance, transactionId: transaction.id, prevRank, newRank };
-    });
+    };
+    const outcome = p.tx ? await exec(p.tx) : await this.prisma.$transaction(exec);
 
     const balanceEvent: BalanceUpdatedEvent = {
       userId: p.userId,
