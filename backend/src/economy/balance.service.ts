@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { NotificationType, Prisma, TransactionType } from '@prisma/client';
+import { NotificationType, Prisma, Rank, TransactionType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { computeRank, isPromotion } from '../common/ranking';
@@ -55,40 +55,47 @@ export class BalanceService {
    */
   async adjust(p: AdjustParams): Promise<AdjustResult> {
     const outcome = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({
-        where: { id: p.userId },
-        select: {
-          balance: true,
-          totalWagered: true,
-          totalWon: true,
-          totalLost: true,
-          rank: true,
-        },
-      });
-      if (!user) throw new NotFoundException('User not found');
+      // Atomic, conditional balance mutation. The increment AND the
+      // sufficient-funds guard happen in a single UPDATE, so two concurrent
+      // adjust() calls can never read the same balance and clobber each other
+      // (the classic read-modify-write "lost update" race). The aggregate
+      // columns reference their pre-update value on the right-hand side, so
+      // netGains stays consistent with the new totalWon/totalLost.
+      const wonInc = p.won ?? 0;
+      const lostInc = p.lost ?? 0;
+      const wageredInc = p.wagered ?? 0;
+      const allowNegative = p.allowNegative ?? false;
 
-      const newBalance = user.balance + p.amount;
-      if (newBalance < 0 && !p.allowNegative) {
+      const rows = await tx.$queryRaw<
+        { balance: number; totalWon: number; rank: Rank }[]
+      >(Prisma.sql`
+        UPDATE "users"
+           SET "balance"      = "balance"      + ${p.amount},
+               "totalWon"     = "totalWon"     + ${wonInc},
+               "totalLost"    = "totalLost"    + ${lostInc},
+               "totalWagered" = "totalWagered" + ${wageredInc},
+               "netGains"     = ("totalWon" + ${wonInc}) - ("totalLost" + ${lostInc})
+         WHERE "id" = ${p.userId}
+           AND (${allowNegative} OR "balance" + ${p.amount} >= 0)
+         RETURNING "balance", "totalWon", "rank"
+      `);
+
+      if (rows.length === 0) {
+        // No row updated: either the user is gone or the balance guard failed.
+        const exists = await tx.user.findUnique({
+          where: { id: p.userId },
+          select: { id: true },
+        });
+        if (!exists) throw new NotFoundException('User not found');
         throw new BadRequestException('Insufficient balance');
       }
 
-      const totalWon = user.totalWon + (p.won ?? 0);
-      const totalLost = user.totalLost + (p.lost ?? 0);
-      const totalWagered = user.totalWagered + (p.wagered ?? 0);
-      const netGains = totalWon - totalLost;
-      const newRank = computeRank(totalWon);
-
-      await tx.user.update({
-        where: { id: p.userId },
-        data: {
-          balance: newBalance,
-          totalWon,
-          totalLost,
-          totalWagered,
-          netGains,
-          rank: newRank,
-        },
-      });
+      const newBalance = rows[0].balance;
+      const prevRank = rows[0].rank;
+      const newRank = computeRank(rows[0].totalWon);
+      if (newRank !== prevRank) {
+        await tx.user.update({ where: { id: p.userId }, data: { rank: newRank } });
+      }
 
       const transaction = await tx.transaction.create({
         data: {
@@ -103,7 +110,7 @@ export class BalanceService {
         },
       });
 
-      return { newBalance, transactionId: transaction.id, prevRank: user.rank, newRank };
+      return { newBalance, transactionId: transaction.id, prevRank, newRank };
     });
 
     const balanceEvent: BalanceUpdatedEvent = {
@@ -146,25 +153,34 @@ export class BalanceService {
     if (params.amount <= 0) throw new BadRequestException('Amount must be positive');
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const from = await tx.user.findUnique({
-        where: { id: params.fromUserId },
-        select: { balance: true },
-      });
-      if (!from) throw new NotFoundException('Sender not found');
-      if (from.balance < params.amount) {
+      // Debit the sender atomically with a balance guard (prevents an overdraft
+      // race under concurrency), then credit the recipient. Both legs and both
+      // ledger rows commit together.
+      const fromRows = await tx.$queryRaw<{ balance: number }[]>(Prisma.sql`
+        UPDATE "users"
+           SET "balance" = "balance" - ${params.amount}
+         WHERE "id" = ${params.fromUserId} AND "balance" >= ${params.amount}
+         RETURNING "balance"
+      `);
+      if (fromRows.length === 0) {
+        const exists = await tx.user.findUnique({
+          where: { id: params.fromUserId },
+          select: { id: true },
+        });
+        if (!exists) throw new NotFoundException('Sender not found');
         throw new BadRequestException('Insufficient balance');
       }
-      const to = await tx.user.findUnique({
-        where: { id: params.toUserId },
-        select: { balance: true },
-      });
-      if (!to) throw new NotFoundException('Recipient not found');
 
-      const fromBalance = from.balance - params.amount;
-      const toBalance = to.balance + params.amount;
+      const toRows = await tx.$queryRaw<{ balance: number }[]>(Prisma.sql`
+        UPDATE "users"
+           SET "balance" = "balance" + ${params.amount}
+         WHERE "id" = ${params.toUserId}
+         RETURNING "balance"
+      `);
+      if (toRows.length === 0) throw new NotFoundException('Recipient not found');
 
-      await tx.user.update({ where: { id: params.fromUserId }, data: { balance: fromBalance } });
-      await tx.user.update({ where: { id: params.toUserId }, data: { balance: toBalance } });
+      const fromBalance = fromRows[0].balance;
+      const toBalance = toRows[0].balance;
 
       await tx.transaction.create({
         data: {
