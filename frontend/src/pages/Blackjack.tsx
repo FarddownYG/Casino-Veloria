@@ -57,7 +57,7 @@ function BlackjackLobby({ onJoin }: { onJoin: (id: string) => void }) {
         ))}
       </div>
 
-      <CreateTableDialog open={createOpen} onOpenChange={setCreateOpen} type="BLACKJACK" onCreated={onJoin} />
+      <CreateTableDialog open={createOpen} onOpenChange={setCreateOpen} type="BLACKJACK" onCreated={(t) => onJoin(t.id)} />
     </div>
   );
 }

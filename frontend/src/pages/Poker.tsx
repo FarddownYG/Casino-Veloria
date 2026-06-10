@@ -98,7 +98,8 @@ function PokerLobby({ onJoin }: { onJoin: (id: string, buyIn: number) => void })
         open={createOpen}
         onOpenChange={setCreateOpen}
         type="POKER"
-        onCreated={(id) => onJoin(id, 1000)}
+        // Buy in with at least the table's minimum (minBet*10), never below it.
+        onCreated={(t) => onJoin(t.id, Math.max(1000, t.minBet * 10))}
       />
     </div>
   );

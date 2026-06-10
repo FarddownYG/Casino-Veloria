@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
-import { useCreateTable } from '@/hooks/useTables';
+import { useCreateTable, type LobbyTableInfo } from '@/hooks/useTables';
 import { apiErrorMessage } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import type { GameType } from '@/types';
@@ -22,7 +22,8 @@ export function CreateTableDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   type: GameType;
-  onCreated: (id: string) => void;
+  // Receives the created table so the caller can derive a valid buy-in.
+  onCreated: (table: LobbyTableInfo) => void;
 }) {
   const create = useCreateTable();
   const isPoker = type === 'POKER';
@@ -44,7 +45,7 @@ export function CreateTableDialog({
       {
         onSuccess: (t) => {
           onOpenChange(false);
-          onCreated(t.id);
+          onCreated(t);
         },
         onError: (e) => toast.error('Création impossible', apiErrorMessage(e)),
       },
