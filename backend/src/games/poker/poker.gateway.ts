@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { TokenService } from '../../common/token/token.service';
 import { authenticateSocket, WsUser } from '../../common/ws/ws-auth';
 import { cryptoRng } from '../../common/rng/provably-fair';
@@ -61,7 +61,7 @@ export class PokerGateway implements OnGatewayConnection {
   private readonly tables = new Map<string, Runtime>();
 
   @WebSocketServer()
-  server!: Server;
+  server!: Namespace;
 
   constructor(
     private readonly tokens: TokenService,
@@ -527,7 +527,7 @@ export class PokerGateway implements OnGatewayConnection {
   // --- emit ---
 
   private emitHole(rt: Runtime, seat: PokerSeat): void {
-    for (const [, socket] of this.server.sockets.sockets) {
+    for (const [, socket] of this.server.sockets) {
       if (socket.data?.user?.userId === seat.userId && socket.data?.tableId === rt.id) {
         socket.emit('hole:cards', { cards: seat.hole });
       }

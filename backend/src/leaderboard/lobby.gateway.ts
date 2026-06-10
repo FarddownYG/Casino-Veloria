@@ -7,7 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { TableStatus } from '@prisma/client';
 import { TokenService } from '../common/token/token.service';
 import { authenticateSocket } from '../common/ws/ws-auth';
@@ -29,7 +29,7 @@ export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly onlineUsers = new Set<string>();
 
   @WebSocketServer()
-  server!: Server;
+  server!: Namespace;
 
   constructor(
     private readonly tokens: TokenService,
@@ -67,7 +67,7 @@ export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data?.userId;
     if (userId) {
       // Only drop presence when no other socket for this user remains.
-      const stillConnected = Array.from(this.server.sockets.sockets.values()).some(
+      const stillConnected = Array.from(this.server.sockets.values()).some(
         (s) => s.id !== client.id && s.data?.userId === userId,
       );
       if (!stillConnected) this.onlineUsers.delete(userId);
@@ -79,7 +79,7 @@ export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('presence', { online: this.onlineUsers.size });
   }
 
-  private async sendTables(target: Socket | Server): Promise<void> {
+  private async sendTables(target: Socket | Namespace): Promise<void> {
     const tables = await this.prisma.gameTable.findMany({
       where: { status: { not: TableStatus.CLOSED }, isPersistent: false },
       orderBy: { createdAt: 'desc' },
