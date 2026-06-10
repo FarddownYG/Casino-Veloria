@@ -96,7 +96,7 @@ Action exacte : 1) Attendre le redeploy Vercel (merge main). 2) Demander à l'ut
 - **Anti-triche** : toute logique gain/perte côté serveur. `BalanceService.adjust()` = unique point de mutation du solde + ligne `Transaction` immuable.
 - **Auth** : JWT access + refresh (rotation). Google = Supabase Auth → `/auth/google` vérifie le token Supabase puis émet les JWT VELORIA. `passwordHash` nullable pour comptes OAuth.
 - **Supabase** : projet `VELORIA` ref `ejozdljwafoydynduboe`, URL `https://ejozdljwafoydynduboe.supabase.co`, clé publishable `sb_publishable_L7a4ogUaL58Rin0TDjHcww_Pa36lr9h`.
-- **Git** : branche de dev `claude/inspiring-dijkstra-oqYjT`, base `main`. Repo `FarddownYG/Casino-Veloria`. PRs en draft, merge squash. Ne jamais pousser sur `main` directement.
+- **Git** : Repo `FarddownYG/Casino-Veloria`. **Workflow décidé par l'utilisateur (2026-06-10) : commit + push DIRECTEMENT sur `main` à chaque fois** (pas de branche de dev ni de PR par défaut). `main` se déploie automatiquement en prod (Vercel front + Render back), donc : ne pousser que du code qui build (`nest build`) et dont les tests passent (`jest` backend). Historique conservé : la doctrine précédente (« PRs en draft, ne jamais pousser sur main ») est abrogée à la demande explicite de l'utilisateur.
 - **Monnaie** : entiers (VELORIA COINS), aucune valeur réelle.
 
 ---
