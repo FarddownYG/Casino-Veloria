@@ -277,6 +277,66 @@ export function evaluateFive(cards: Card[]): HandRank {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Side pots
+// ---------------------------------------------------------------------------
+
+/** One player's total contribution to the pot for a hand. */
+export interface Contribution {
+  userId: string;
+  amount: number; // total chips committed this hand
+  folded: boolean; // folded chips are dead money: counted, but not eligible to win
+}
+
+/** A pot layer: its chips, everyone who paid into it, and who may win it. */
+export interface SidePot {
+  amount: number;
+  contributors: string[]; // all payers into this layer (incl. folded)
+  eligible: string[]; // non-folded contributors who can win this layer
+}
+
+/**
+ * Split total contributions into main + side pots (handles multiple all-ins).
+ *
+ * Each distinct contribution level forms a layer: every player still owing into
+ * that level pays one unit; folded players' chips stay in the pot as dead money
+ * but their owners can't win. A layer whose only contributors are folded (an
+ * uncalled bet) ends up with no eligible winner and must be refunded by the
+ * caller to its contributors. The sum of all pots equals the total wagered.
+ */
+export function buildSidePots(contributions: Contribution[]): SidePot[] {
+  const contribs = contributions
+    .filter((c) => c.amount > 0)
+    .map((c) => ({ userId: c.userId, remaining: c.amount, folded: c.folded }));
+  const pots: SidePot[] = [];
+  const sameSet = (a: string[], b: string[]): boolean =>
+    a.length === b.length && a.every((x) => b.includes(x));
+
+  for (;;) {
+    const positive = contribs.filter((c) => c.remaining > 0);
+    if (positive.length === 0) break;
+    const min = Math.min(...positive.map((c) => c.remaining));
+    let amount = 0;
+    for (const c of positive) {
+      c.remaining -= min;
+      amount += min;
+    }
+    const contributors = positive.map((c) => c.userId);
+    const eligible = positive.filter((c) => !c.folded).map((c) => c.userId);
+    // Merge consecutive layers that share the same eligible set.
+    const last = pots[pots.length - 1];
+    if (last && sameSet(last.eligible, eligible)) {
+      last.amount += amount;
+      for (const u of contributors) {
+        if (!last.contributors.includes(u)) last.contributors.push(u);
+      }
+    } else {
+      pots.push({ amount, contributors, eligible });
+    }
+  }
+  return pots;
+}
+
 /** All 5-card combinations of the given indices count. */
 function combinations(n: number, k: number): number[][] {
   const result: number[][] = [];

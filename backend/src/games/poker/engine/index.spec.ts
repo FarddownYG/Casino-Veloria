@@ -9,6 +9,7 @@ import {
   evaluateBest,
   compareHands,
   rankToString,
+  buildSidePots,
 } from './index';
 
 /** Seeded mulberry32 RNG for deterministic shuffle tests. */
@@ -332,5 +333,70 @@ describe('evaluateBest', () => {
     expect(() =>
       evaluateBest(hand('AS', 'KS', 'QS', 'JS', 'TS', '9S', '8S', '7S')),
     ).toThrow();
+  });
+});
+
+describe('buildSidePots', () => {
+  const total = (pots: { amount: number }[]) => pots.reduce((s, p) => s + p.amount, 0);
+
+  it('single pot when everyone matched and nobody folded', () => {
+    const pots = buildSidePots([
+      { userId: 'a', amount: 100, folded: false },
+      { userId: 'b', amount: 100, folded: false },
+    ]);
+    expect(pots).toHaveLength(1);
+    expect(pots[0].amount).toBe(200);
+    expect(pots[0].eligible.sort()).toEqual(['a', 'b']);
+  });
+
+  it('creates a side pot for a short all-in', () => {
+    // a is all-in for 50; b and c put 100 each.
+    const pots = buildSidePots([
+      { userId: 'a', amount: 50, folded: false },
+      { userId: 'b', amount: 100, folded: false },
+      { userId: 'c', amount: 100, folded: false },
+    ]);
+    expect(total(pots)).toBe(250);
+    expect(pots).toHaveLength(2);
+    // Main pot: 50*3, all eligible.
+    expect(pots[0].amount).toBe(150);
+    expect(pots[0].eligible.sort()).toEqual(['a', 'b', 'c']);
+    // Side pot: remaining 50 from b & c only.
+    expect(pots[1].amount).toBe(100);
+    expect(pots[1].eligible.sort()).toEqual(['b', 'c']);
+  });
+
+  it('keeps folded chips as dead money (not eligible to win)', () => {
+    const pots = buildSidePots([
+      { userId: 'a', amount: 100, folded: true },
+      { userId: 'b', amount: 100, folded: false },
+      { userId: 'c', amount: 100, folded: false },
+    ]);
+    expect(total(pots)).toBe(300);
+    expect(pots).toHaveLength(1);
+    expect(pots[0].eligible.sort()).toEqual(['b', 'c']);
+    expect(pots[0].contributors.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('marks an uncalled layer (only folded contributors) as not winnable', () => {
+    // a bets 100 (live); b folded after putting 20. Top 80 is uncalled.
+    const pots = buildSidePots([
+      { userId: 'a', amount: 100, folded: false },
+      { userId: 'b', amount: 20, folded: true },
+    ]);
+    expect(total(pots)).toBe(120);
+    // 'a' is eligible for everything (sole non-folded contributor at every level).
+    for (const pot of pots) expect(pot.eligible).toEqual(['a']);
+  });
+
+  it('ignores zero contributions', () => {
+    const pots = buildSidePots([
+      { userId: 'a', amount: 0, folded: false },
+      { userId: 'b', amount: 30, folded: false },
+      { userId: 'c', amount: 30, folded: false },
+    ]);
+    expect(total(pots)).toBe(60);
+    expect(pots).toHaveLength(1);
+    expect(pots[0].eligible.sort()).toEqual(['b', 'c']);
   });
 });

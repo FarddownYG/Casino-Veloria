@@ -30,11 +30,13 @@ export class PokerService {
     }
     const players = await this.prisma.gamePlayer.findMany({
       where: { tableId, isActive: true },
-      select: { seat: true, userId: true },
+      select: { seat: true, userId: true, stack: true },
     });
     const existing = players.find((p) => p.userId === userId);
     if (existing) {
-      return { seat: existing.seat, stack: 0 };
+      // Reconnect: return the player's real persisted stack (was 0, which wiped
+      // the chips of any player who rejoined after a disconnect / server boot).
+      return { seat: existing.seat, stack: existing.stack };
     }
     if (players.length >= table.maxSeats) throw new BadRequestException('Table is full');
 

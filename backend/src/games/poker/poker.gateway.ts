@@ -12,7 +12,7 @@ import { Namespace, Socket } from 'socket.io';
 import { TokenService } from '../../common/token/token.service';
 import { authenticateSocket, WsUser } from '../../common/ws/ws-auth';
 import { cryptoRng } from '../../common/rng/provably-fair';
-import { Card, compareHands, createDeck, evaluateBest, shuffle } from './engine';
+import { buildSidePots, Card, compareHands, createDeck, evaluateBest, shuffle } from './engine';
 import { PokerService } from './poker.service';
 
 const TURN_MS = 30_000;
@@ -439,42 +439,83 @@ export class PokerGateway implements OnGatewayConnection {
     rt.phase = 'SHOWDOWN';
     rt.activeUserId = undefined;
 
-    let winners: PokerSeat[] = [];
-    let revealed: { userId: string; hole: Card[]; hand: string }[] = [];
+    const totalPot = rt.pot;
 
-    if (live.length === 1) {
-      winners = live;
+    // Split the total wagered into main + side pots (correct multi-all-in
+    // payouts; folded chips are dead money, uncalled layers get refunded).
+    const pots = buildSidePots(
+      [...rt.seats.values()].map((s) => ({
+        userId: s.userId,
+        amount: s.totalBet,
+        folded: s.folded || !s.inHand,
+      })),
+    );
+
+    const winningsByUser = new Map<string, number>();
+    const award = (uid: string, amt: number): void => {
+      winningsByUser.set(uid, (winningsByUser.get(uid) ?? 0) + amt);
+    };
+    const splitAmong = (uids: string[], amount: number): void => {
+      if (uids.length === 0) return;
+      const share = Math.floor(amount / uids.length);
+      let rem = amount - share * uids.length;
+      for (const uid of uids) {
+        award(uid, share + (rem > 0 ? 1 : 0));
+        if (rem > 0) rem -= 1;
+      }
+    };
+
+    const revealed: { userId: string; hole: Card[]; hand: string }[] = [];
+
+    if (live.length <= 1) {
+      // Fold-out: the lone player takes the pots they're eligible for; any
+      // uncalled layer (only folded contributors) is refunded to its payers.
+      for (const pot of pots) {
+        splitAmong(pot.eligible.length > 0 ? pot.eligible : pot.contributors, pot.amount);
+      }
     } else {
-      // Showdown: best 5 of 7 (single main pot — side pots simplified).
-      let best = null as ReturnType<typeof evaluateBest> | null;
+      // Showdown: evaluate each contender once, then award every pot to the
+      // best hand among its eligible (non-folded) contributors.
+      const handByUser = new Map<string, ReturnType<typeof evaluateBest>>();
       for (const s of live) {
         const rank = evaluateBest([...s.hole, ...rt.board]);
+        handByUser.set(s.userId, rank);
         revealed.push({ userId: s.userId, hole: s.hole, hand: rank.name });
-        if (!best || compareHands(rank, best) > 0) {
-          best = rank;
-          winners = [s];
-        } else if (best && compareHands(rank, best) === 0) {
-          winners.push(s);
+      }
+      for (const pot of pots) {
+        const contenders = pot.eligible.filter((uid) => handByUser.has(uid));
+        if (contenders.length === 0) {
+          splitAmong(pot.contributors, pot.amount); // uncalled -> refund
+          continue;
         }
+        let best: ReturnType<typeof evaluateBest> | null = null;
+        let potWinners: string[] = [];
+        for (const uid of contenders) {
+          const rank = handByUser.get(uid)!;
+          if (!best || compareHands(rank, best) > 0) {
+            best = rank;
+            potWinners = [uid];
+          } else if (compareHands(rank, best) === 0) {
+            potWinners.push(uid);
+          }
+        }
+        splitAmong(potWinners, pot.amount);
       }
     }
 
-    const share = Math.floor(rt.pot / winners.length);
-    let remainder = rt.pot - share * winners.length;
-    for (const w of winners) {
-      let amt = share;
-      if (remainder > 0) {
-        amt += 1;
-        remainder -= 1;
-      }
-      w.stack += amt;
-      void this.poker.syncStack(rt.id, w.userId, w.stack);
+    const winnerSummary: { userId: string; username: string }[] = [];
+    for (const [uid, amt] of winningsByUser) {
+      const seat = rt.seats.get(uid);
+      if (!seat) continue;
+      seat.stack += amt;
+      void this.poker.syncStack(rt.id, uid, seat.stack);
+      winnerSummary.push({ userId: uid, username: seat.username });
     }
 
     this.server.to(this.room(rt.id)).emit('showdown', {
       board: rt.board,
-      pot: rt.pot,
-      winners: winners.map((w) => ({ userId: w.userId, username: w.username })),
+      pot: totalPot,
+      winners: winnerSummary,
       revealed,
     });
 
