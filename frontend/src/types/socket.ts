@@ -12,6 +12,15 @@ import type {
 } from './enums';
 import type { LeaderboardEntry, TableSummary } from './models';
 
+/**
+ * NOTE: Only `RouletteBet` and the `/user` payloads below are imported at
+ * runtime; they mirror the live gateway emits. The per-game *state* payloads
+ * (blackjack/poker `table:state`, etc.) are a design reference and the
+ * authoritative, runtime-accurate shapes live in the corresponding hooks
+ * (useBlackjack `BJState`, usePoker `PKState`). Treat those state types here as
+ * illustrative and verify against the gateway before relying on them.
+ */
+
 // ===========================================================================
 // /user namespace
 // ===========================================================================
@@ -80,19 +89,19 @@ export interface RouletteBet {
   amount: number;
 }
 
-export interface RoulettePlayerPresence {
+export interface RouletteBettor {
   username: string;
-  rank: Rank;
   totalStake: number;
-  betCount: number;
 }
 
 export interface RouletteStatePayload {
   phase: RoulettePhase;
   timer: number;
-  players: RoulettePlayerPresence[];
+  players: number; // count of connected clients in the room
+  bettors?: RouletteBettor[];
   history: number[];
-  round?: number;
+  roundId?: string;
+  seedHash?: string;
 }
 
 export interface RouletteBetAcceptedPayload {
@@ -109,12 +118,13 @@ export interface RouletteSpinStartPayload {
   targetNumber: number;
   color: RouletteColor;
   spinSeedHash: string;
+  duration: number;
 }
 
 export interface RouletteSpinResultPayload {
   number: number;
   color: RouletteColor;
-  round: number;
+  round: string; // round id (UUID)
 }
 
 export interface RoulettePayoutPayload {
