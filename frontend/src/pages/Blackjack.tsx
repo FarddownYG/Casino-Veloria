@@ -71,8 +71,14 @@ function BlackjackTable({ tableId, onLeave }: { tableId: string; onLeave: () => 
   const isMyTurn = state?.phase === 'PLAYER_TURN' && state.activeUserId === user?.id;
   const myHand = mySeat?.hands[mySeat.activeHand];
   const canDouble = isMyTurn && myHand?.cards.length === 2;
+  // Split on equal *value* (10/J/Q/K all count as 10), matching the server
+  // engine's canSplit — comparing raw ranks wrongly forbade e.g. K+Q.
+  const bjValue = (r?: string) =>
+    r === 'A' ? 11 : r === '10' || r === 'J' || r === 'Q' || r === 'K' ? 10 : Number(r);
   const canSplit =
-    isMyTurn && myHand?.cards.length === 2 && myHand.cards[0]?.rank === myHand.cards[1]?.rank;
+    isMyTurn &&
+    myHand?.cards.length === 2 &&
+    bjValue(myHand.cards[0]?.rank) === bjValue(myHand.cards[1]?.rank);
 
   const handleLeave = () => {
     leave();

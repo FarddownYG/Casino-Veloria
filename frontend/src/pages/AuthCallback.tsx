@@ -39,6 +39,7 @@ export default function AuthCallback() {
     };
 
     let unsub: (() => void) | undefined;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (data.session) {
@@ -51,14 +52,17 @@ export default function AuthCallback() {
       unsub = () => sub.subscription.unsubscribe();
 
       // Fallback if no event fires (e.g. session already settled).
-      setTimeout(async () => {
+      fallbackTimer = setTimeout(async () => {
         const s = (await supabase.auth.getSession()).data.session;
         if (s) void finish(s);
         else if (!done.current) setError('Aucune session Google détectée.');
       }, 4000);
     })();
 
-    return () => unsub?.();
+    return () => {
+      unsub?.();
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    };
   }, [login, navigate]);
 
   return (
