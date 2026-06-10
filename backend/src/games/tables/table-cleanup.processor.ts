@@ -1,5 +1,7 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Job, Queue } from 'bullmq';
 import { TablesService } from './tables.service';
 
@@ -23,13 +25,30 @@ export class TableCleanupProcessor extends WorkerHost {
   }
 }
 
+/**
+ * Schedules the empty-table cleanup. With Redis (REDIS_ENABLED=true) it uses a
+ * repeatable BullMQ job; otherwise it falls back to an in-process @Cron so empty
+ * tables still auto-close on a Redis-less host.
+ */
 @Injectable()
 export class TableCleanupScheduler implements OnModuleInit {
   private readonly logger = new Logger(TableCleanupScheduler.name);
 
-  constructor(@InjectQueue(TABLES_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    @InjectQueue(TABLES_QUEUE) private readonly queue: Queue,
+    private readonly config: ConfigService,
+    private readonly tables: TablesService,
+  ) {}
+
+  private get redisEnabled(): boolean {
+    return (this.config.get('redis') as { enabled: boolean }).enabled;
+  }
 
   async onModuleInit(): Promise<void> {
+    if (!this.redisEnabled) {
+      this.logger.log('Redis disabled — empty-table cleanup runs via in-process @Cron (every minute)');
+      return;
+    }
     try {
       await this.queue.add(
         'cleanup-empty',
@@ -41,9 +60,21 @@ export class TableCleanupScheduler implements OnModuleInit {
           jobId: 'cleanup-empty',
         },
       );
-      this.logger.log('Scheduled empty-table cleanup job');
+      this.logger.log('Scheduled empty-table cleanup job (BullMQ)');
     } catch (e) {
       this.logger.warn(`Could not schedule cleanup job: ${(e as Error).message}`);
+    }
+  }
+
+  /** In-process fallback when Redis/BullMQ isn't used (avoids double-running). */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async cleanupCron(): Promise<void> {
+    if (this.redisEnabled) return; // BullMQ owns the schedule
+    try {
+      const result = await this.tables.closeEmptyTables();
+      if (result.closed > 0) this.logger.log(`[cron] Closed ${result.closed} empty table(s)`);
+    } catch (e) {
+      this.logger.error(`[cron] Table cleanup failed: ${(e as Error).message}`);
     }
   }
 }

@@ -8,7 +8,7 @@ export interface AppConfig {
     accessTtl: number;
     refreshTtl: number;
   };
-  redis: { host: string; port: number; password?: string };
+  redis: { host: string; port: number; password?: string; enabled: boolean };
   supabase: { url: string; anonKey: string };
   economy: {
     signupBonus: number;
@@ -68,6 +68,10 @@ export default (): AppConfig => ({
     host: process.env.REDIS_HOST ?? 'localhost',
     port: toInt(process.env.REDIS_PORT, 6379),
     password: process.env.REDIS_PASSWORD || undefined,
+    // When false (the default), BullMQ scheduling is skipped and periodic jobs
+    // (loan interest, empty-table cleanup) run via in-process @Cron instead, so
+    // they work on a Redis-less host. Set REDIS_ENABLED=true to use BullMQ.
+    enabled: process.env.REDIS_ENABLED === 'true',
   },
   supabase: {
     url: process.env.SUPABASE_URL ?? 'https://ejozdljwafoydynduboe.supabase.co',
