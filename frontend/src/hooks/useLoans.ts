@@ -95,8 +95,11 @@ export function useLoanActions() {
     cancelP2P: useMutation({ mutationFn: (id: string) => api.post(`/loans/p2p/${id}/cancel`), ...opts }),
     repayP2P: useMutation({ mutationFn: (id: string) => api.post(`/loans/p2p/${id}/repay`, {}), ...opts }),
     negotiateP2P: useMutation({
-      mutationFn: (v: { id: string; amount?: number; interestRate?: number; durationDays?: number }) =>
-        api.post(`/loans/p2p/${v.id}/negotiate`, v),
+      // Only send the negotiable terms in the body; `id` goes in the URL. The
+      // backend ValidationPipe runs with forbidNonWhitelisted, so an extra `id`
+      // property in the body would otherwise be rejected with a 400.
+      mutationFn: ({ id, ...terms }: { id: string; amount?: number; interestRate?: number; durationDays?: number }) =>
+        api.post(`/loans/p2p/${id}/negotiate`, terms),
       ...opts,
     }),
     sendGift: useMutation({

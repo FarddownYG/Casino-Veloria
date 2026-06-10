@@ -32,6 +32,22 @@ const toFloat = (v: string | undefined, fallback: number): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const isProd = process.env.NODE_ENV === 'production';
+
+/**
+ * Returns the env var, or the dev fallback outside production. In production a
+ * missing secret is fatal: we must never sign JWTs with a publicly-known
+ * default value (that would let anyone forge a valid session).
+ */
+const requireInProd = (name: string, devFallback: string): string => {
+  const value = process.env[name];
+  if (value) return value;
+  if (isProd) {
+    throw new Error(`Missing required environment variable in production: ${name}`);
+  }
+  return devFallback;
+};
+
 export default (): AppConfig => ({
   env: process.env.NODE_ENV ?? 'development',
   port: toInt(process.env.PORT, 4000),
@@ -43,8 +59,8 @@ export default (): AppConfig => ({
     .map((s) => s.trim())
     .filter(Boolean),
   jwt: {
-    accessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
-    refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
+    accessSecret: requireInProd('JWT_ACCESS_SECRET', 'dev-access-secret'),
+    refreshSecret: requireInProd('JWT_REFRESH_SECRET', 'dev-refresh-secret'),
     accessTtl: toInt(process.env.JWT_ACCESS_TTL, 900),
     refreshTtl: toInt(process.env.JWT_REFRESH_TTL, 2592000),
   },

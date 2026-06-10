@@ -40,3 +40,7 @@ coverage/
 # Vite
 frontend/dist/
 .vercel
+
+# Compiled Vite config artifacts (source of truth is vite.config.ts)
+frontend/vite.config.js
+frontend/vite.config.d.ts
