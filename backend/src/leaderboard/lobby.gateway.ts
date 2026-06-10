@@ -92,7 +92,9 @@ export class LobbyGateway implements OnGatewayConnection, OnGatewayDisconnect {
         maxBet: true,
         maxSeats: true,
         status: true,
-        _count: { select: { players: true } },
+        // Active seats only (see TablesService.list) so the lobby never shows
+        // phantom occupants from players who already left.
+        _count: { select: { players: { where: { isActive: true } } } },
       },
     });
     const summaries = tables.map((t) => ({

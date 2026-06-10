@@ -48,7 +48,13 @@ export class TablesService {
         ...(type ? { type } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { players: true } }, createdBy: { select: { username: true } } },
+      include: {
+        // Count only seated (active) players, otherwise players who left still
+        // inflate the seat count — showing tables as "full" and contradicting
+        // the empty-table cleanup job (which counts active players).
+        _count: { select: { players: { where: { isActive: true } } } },
+        createdBy: { select: { username: true } },
+      },
     });
     return tables.map((t) => ({
       id: t.id,
