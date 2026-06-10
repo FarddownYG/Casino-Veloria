@@ -10,7 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { TokenService } from '../../common/token/token.service';
 import { authenticateSocket, WsUser } from '../../common/ws/ws-auth';
 import { seededFloat, SeedPair } from '../../common/rng/provably-fair';
@@ -38,7 +38,7 @@ export class RouletteGateway
   private readonly logger = new Logger(RouletteGateway.name);
 
   @WebSocketServer()
-  server!: Server;
+  server!: Namespace;
 
   private phase: Phase = 'BETTING';
   private phaseEndsAt = 0;
@@ -149,7 +149,7 @@ export class RouletteGateway
       timer: Math.max(0, this.phaseEndsAt - Date.now()),
       roundId: this.round?.id,
       seedHash: this.round?.seed.serverSeedHash,
-      players: this.server.sockets.adapter.rooms.get(ROOM)?.size ?? 0,
+      players: this.server.adapter?.rooms?.get(ROOM)?.size ?? 0,
       bettors: Array.from(this.round?.bets.values() ?? []).map((b) => ({
         username: b.username,
         totalStake: b.totalStake,
