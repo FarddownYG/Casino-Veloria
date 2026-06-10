@@ -55,8 +55,12 @@ export class UsersController {
     return this.users.getPublicProfile(username);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':username/history')
-  history(@Param('username') username: string) {
-    return this.users.getHistory(username);
+  history(
+    @CurrentUser('userId') userId: string,
+    @Param('username') username: string,
+  ) {
+    return this.users.getHistory(username, userId);
   }
 }

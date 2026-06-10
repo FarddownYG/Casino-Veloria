@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { RankBadge } from '@/components/RankBadge';
 import { Badge } from '@/components/ui/badge';
+import { useAuthStore } from '@/store/auth';
 import { formatDate, formatSigned, formatVC, getInitials } from '@/lib/utils';
 import type { PublicUser, Rank } from '@/types';
 
@@ -13,12 +14,17 @@ interface History {
 
 export default function Profile() {
   const { username = '' } = useParams();
+  const me = useAuthStore((s) => s.user);
+  // History (bets + transactions) is private to its owner; only fetch it on
+  // your own profile to avoid a guaranteed 403 on other players' pages.
+  const isSelf = !!me && me.username === username;
   const { data: profile } = useQuery({
     queryKey: ['profile', username],
     queryFn: async () => (await api.get<PublicUser>(`/users/${username}`)).data,
   });
   const { data: history } = useQuery({
     queryKey: ['profile-history', username],
+    enabled: isSelf,
     queryFn: async () => (await api.get<History>(`/users/${username}/history`)).data,
   });
 
@@ -66,7 +72,9 @@ export default function Profile() {
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Aucune partie.</p>
+            <p className="text-xs text-muted-foreground">
+              {isSelf ? 'Aucune partie.' : 'Historique privé.'}
+            </p>
           )}
         </div>
 
@@ -82,7 +90,9 @@ export default function Profile() {
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Aucune transaction.</p>
+            <p className="text-xs text-muted-foreground">
+              {isSelf ? 'Aucune transaction.' : 'Historique privé.'}
+            </p>
           )}
         </div>
       </div>

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -71,12 +72,17 @@ export class UsersService {
     return user;
   }
 
-  async getHistory(username: string, take = 25) {
+  async getHistory(username: string, requestingUserId: string, take = 25) {
     const user = await this.prisma.user.findFirst({
       where: { username },
       select: { id: true },
     });
     if (!user) throw new NotFoundException('User not found');
+    // Bets and transactions (loans, gifts, descriptions) are private: only the
+    // owner may read their own ledger. Public profile data lives on /:username.
+    if (user.id !== requestingUserId) {
+      throw new ForbiddenException('History is private');
+    }
 
     const [bets, transactions] = await Promise.all([
       this.prisma.bet.findMany({
